@@ -1,0 +1,57 @@
+name: Daily Exchange Rate Update
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 06:00 UTC = 09:00 TRT
+  workflow_dispatch:
+
+jobs:
+  update-rates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Fetch Exchange Rates
+        id: fetch-rates
+        run: |
+          # Fetch XML from TCMB
+          response=$(curl -s "https://www.tcmb.gov.tr/kurlar/today.xml")
+          
+          # Extract USD (ABD DOLARI)
+          usd_buy=$(echo "$response" | grep -A 5 "ABD DOLARI" | grep "ForexBuying" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          usd_sell=$(echo "$response" | grep -A 5 "ABD DOLARI" | grep "ForexSelling" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          
+          # Extract EUR (EURO)
+          eur_buy=$(echo "$response" | grep -A 5 "EURO" | grep "ForexBuying" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          eur_sell=$(echo "$response" | grep -A 5 "EURO" | grep "ForexSelling" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          
+          # Extract GBP (İNGİLİZ STERLİNİ)
+          stg_buy=$(echo "$response" | grep -A 5 "İNGİLİZ STERLİNİ" | grep "ForexBuying" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          stg_sell=$(echo "$response" | grep -A 5 "İNGİLİZ STERLİNİ" | grep "ForexSelling" | sed -e 's/<[^>]*>//g' -e 's/^[ \t]*//')
+          
+          # Current Date
+          current_date=$(date +'%Y-%m-%d')
+          
+          # Create JSON
+          json_content=$(cat <<EOF
+          {
+            "date": "$current_date",
+            "rates": {
+              "USD": { "buy": $usd_buy, "sell": $usd_sell },
+              "EUR": { "buy": $eur_buy, "sell": $eur_sell },
+              "STG": { "buy": $stg_buy, "sell": $stg_sell }
+            }
+          }
+          EOF
+          )
+          
+          echo "$json_content" > data/exchange-rates.json
+          
+      - name: Commit and Push
+        run: |
+          git config --global user.name 'GitHub Action'
+          git config --global user.email 'action@github.com'
+          git add data/exchange-rates.json
+          git commit -m "🔄 Auto-update: exchange-rates.json by GitHub Action at $(date)" || echo "No changes to commit"
+          git push
